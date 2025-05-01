@@ -361,9 +361,16 @@ def evaluate_regression_model(model, valid_images, valid_ages, output_dir, task,
     print(f"{model_name} - Validation {task} MAE: {valid_mae:.4f}")
 
     predictions = model.predict(valid_images)
+    predictions = predictions.flatten()  # Đảm bảo predictions là 1D array
     true_values = valid_ages
 
+    # Tính thêm MAE và MSE bằng sklearn.metrics
+    sk_mae = mean_absolute_error(true_values, predictions)
+    sk_mse = mean_squared_error(true_values, predictions)
     r2 = r2_score(true_values, predictions)
+
+    print(f"{model_name} - Validation {task} Sklearn MAE: {sk_mae:.4f}")
+    print(f"{model_name} - Validation {task} Sklearn MSE: {sk_mse:.4f}")
     print(f"{model_name} - Validation {task} R² Score: {r2:.4f}")
 
     plt.figure(figsize=(8, 6))
@@ -378,6 +385,8 @@ def evaluate_regression_model(model, valid_images, valid_ages, output_dir, task,
     return {
         'loss': valid_loss,
         'mae': valid_mae,
+        'sklearn_mae': sk_mae,
+        'sklearn_mse': sk_mse,
         'r2': r2
     }
 

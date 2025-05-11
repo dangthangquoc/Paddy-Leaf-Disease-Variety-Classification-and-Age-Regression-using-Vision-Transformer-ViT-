@@ -228,7 +228,7 @@ def create_enhanced_vit_classifier(num_classes, input_shape=(256, 256, 3)):
     
     # Data augmentation
     data_augmentation = keras.Sequential([
-        layers.Rescale(1.0/255.0),
+        layers.Rescaling(1.0/255.0),
         layers.Resizing(72, 72),
         layers.RandomFlip("horizontal"),
         layers.RandomRotation(factor=0.05),

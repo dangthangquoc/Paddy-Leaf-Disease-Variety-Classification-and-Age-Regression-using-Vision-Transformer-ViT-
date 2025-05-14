@@ -107,25 +107,31 @@ def mlp(x, hidden_units, dropout_rate):
 
 # ViT Model for Variety Classification
 def create_vit_variety_classifier():
-    # Create data augmentation
+    # Create a standalone normalization layer
+    normalization = layers.Normalization()
+    
+    # Create data augmentation separately
     data_augmentation = keras.Sequential(
         [
-            layers.Normalization(),
             layers.Resizing(image_size, image_size),
             layers.RandomFlip("horizontal"),
             layers.RandomRotation(factor=0.02),
-            layers.RandomZoom(
-                height_factor=0.2, width_factor=0.2
-            ),
+            layers.RandomZoom(height_factor=0.2, width_factor=0.2),
         ],
         name="data_augmentation",
     )
     
     inputs = layers.Input(shape=input_shape)
+
     # Normalize data
-    normalized = data_augmentation(inputs)
-    # Create patches.
-    patches = Patches(patch_size)(normalized)
+    normalized = normalization(inputs)
+
+    # Augment data
+    augmented = data_augmentation(normalized)
+
+    # Create patches
+    patches = Patches(patch_size)(augmented)
+
     # Encode patches.
     encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
 
@@ -461,6 +467,8 @@ class PaddyModelHandler:
                 top_variety_indices = np.argsort(variety_pred[0])[-3:][::-1]
                 top_varieties = [(self.variety_encoder.classes_[i], variety_pred[0][i] * 100) 
                                for i in top_variety_indices]
+                
+                print(f"Predicted variety: {variety_name} ({variety_confidence:.1f}%)")
             else:
                 # Simulate variety prediction
                 print("Using simulated variety prediction")

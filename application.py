@@ -78,6 +78,20 @@ class PatchEncoder(layers.Layer):
             "projection_dim": self.projection_dim
         })
         return config
+    
+class PatchEncoderTask1(layers.Layer):
+    def __init__(self, num_patches, projection_dim):
+        super(PatchEncoderTask1, self).__init__()
+        self.num_patches = num_patches
+        self.projection = layers.Dense(units=projection_dim)
+        self.position_embedding = layers.Embedding(
+            input_dim=num_patches, output_dim=projection_dim
+        )
+
+    def call(self, patch):
+        positions = tf.range(start=0, limit=self.num_patches, delta=1)
+        encoded = self.projection(patch) + self.position_embedding(positions)
+        return encoded
 
 # Helper function for the ViT model
 def mlp(x, hidden_units, dropout_rate):
@@ -101,7 +115,46 @@ data_augmentation = keras.Sequential(
 # Normalization layer (will be adapted during training)
 normalization = layers.Normalization()
 
-# ViT Model for Variety Classification
+# Task 1: Disease Classification Model
+def create_vit_classifier():
+    inputs = layers.Input(shape=input_shape)
+    # Create data augmentation inside model
+    augmented = data_augmentation(inputs)
+    # Create patches.
+    patches = Patches(patch_size)(augmented)
+    # Encode patches.
+    encoded_patches = PatchEncoderTask1(num_patches, projection_dim)(patches)
+
+    # Create multiple layers of the Transformer block.
+    for _ in range(transformer_layers):
+        # Layer normalization 1.
+        x1 = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+        # Create a multi-head attention layer.
+        attention_output = layers.MultiHeadAttention(
+            num_heads=num_heads, key_dim=projection_dim, dropout=0.1
+        )(x1, x1)
+        # Skip connection 1.
+        x2 = layers.Add()([attention_output, encoded_patches])
+        # Layer normalization 2.
+        x3 = layers.LayerNormalization(epsilon=1e-6)(x2)
+        # MLP.
+        x3 = mlp(x3, hidden_units=transformer_units, dropout_rate=0.1)
+        # Skip connection 2.
+        encoded_patches = layers.Add()([x3, x2])
+
+    # Create a [batch_size, projection_dim] tensor.
+    representation = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+    representation = layers.Flatten()(representation)
+    representation = layers.Dropout(0.5)(representation)
+    # Add MLP.
+    features = mlp(representation, hidden_units=mlp_head_units, dropout_rate=0.5)
+    # Classify outputs with softmax for disease classification
+    logits = layers.Dense(num_classes, activation='softmax')(features)
+    # Create the Keras model.
+    model = keras.Model(inputs=inputs, outputs=logits)
+    return model
+
+# Task 2: ViT Model for Variety Classification 
 def create_vit_variety_classifier():
     inputs = layers.Input(shape=input_shape)
     # Normalize data
@@ -140,6 +193,99 @@ def create_vit_variety_classifier():
     logits = layers.Dense(num_classes, activation='softmax', name='variety_output')(features)
     # Create the Keras model.
     model = keras.Model(inputs=inputs, outputs=logits)
+    return model
+
+class PatchEncoderTask3(layers.Layer):
+    def __init__(self, num_patches, projection_dim, **kwargs):  # Add **kwargs
+        super(PatchEncoderTask3, self).__init__(**kwargs)  # Pass kwargs to parent
+        self.num_patches = num_patches
+        self.projection_dim = projection_dim
+        self.projection = layers.Dense(units=projection_dim)
+        self.position_embedding = layers.Embedding(
+            input_dim=num_patches, output_dim=projection_dim
+        )
+
+    def call(self, patch):
+        positions = tf.range(start=0, limit=self.num_patches, delta=1)
+        encoded = self.projection(patch) + self.position_embedding(positions)
+        return encoded
+        
+    def get_config(self):
+        config = super(PatchEncoderTask3, self).get_config()
+        config.update({
+            "num_patches": self.num_patches,
+            "projection_dim": self.projection_dim
+        })
+        return config
+    
+    @classmethod
+    def from_config(cls, config):
+        num_patches = config.pop("num_patches")  # Extract your custom parameters
+        projection_dim = config.pop("projection_dim")
+        # Create instance with your params and pass remaining config as kwargs
+        return cls(num_patches=num_patches, projection_dim=projection_dim, **config)
+
+
+# Task 3: Age Regression Model
+def create_vit_regressor():
+    # Create data augmentation inside model
+    data_augmentation_local = keras.Sequential(
+        [
+            layers.Normalization(),
+            layers.Resizing(image_size, image_size),
+            layers.RandomFlip("horizontal"),
+            layers.RandomRotation(factor=0.02),
+            layers.RandomZoom(height_factor=0.2, width_factor=0.2),
+        ],
+        name="data_augmentation_age",
+    )
+    
+    inputs = layers.Input(shape=(256, 256, 3))
+    
+    # Augment data
+    augmented = data_augmentation_local(inputs)
+    
+    # Create patches
+    patches = Patches(patch_size)(augmented)
+    
+    # Encode patches
+    encoded_patches = PatchEncoderTask3(num_patches, projection_dim)(patches)
+
+    # Create multiple layers of the Transformer block
+    for _ in range(transformer_layers):
+        # Layer normalization 1
+        x1 = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+        
+        # Create a multi-head attention layer
+        attention_output = layers.MultiHeadAttention(
+            num_heads=num_heads, key_dim=projection_dim, dropout=0.1
+        )(x1, x1)
+        
+        # Skip connection 1
+        x2 = layers.Add()([attention_output, encoded_patches])
+        
+        # Layer normalization 2
+        x3 = layers.LayerNormalization(epsilon=1e-6)(x2)
+        
+        # MLP
+        x3 = mlp(x3, hidden_units=transformer_units, dropout_rate=0.1)
+        
+        # Skip connection 2
+        encoded_patches = layers.Add()([x3, x2])
+
+    # Create a [batch_size, projection_dim] tensor
+    representation = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+    representation = layers.Flatten()(representation)
+    representation = layers.Dropout(0.5)(representation)
+    
+    # Add MLP
+    features = mlp(representation, hidden_units=mlp_head_units, dropout_rate=0.5)
+    
+    # Output layer for regression (single neuron for age)
+    output = layers.Dense(1, activation='linear')(features)
+    
+    # Create the Keras model
+    model = keras.Model(inputs=inputs, outputs=output)
     return model
 
 # Function to preprocess image for model input
@@ -188,29 +334,12 @@ class PaddyModelHandler:
                 self.num_varieties = len(self.variety_encoder.classes_)
                 print(f"Created fallback variety encoder with {self.num_varieties} classes")
             
-            # Load or create disease encoder
-            # Try to infer from folder structure
-            if os.path.exists('train_images'):
-                disease_folders = [d for d in os.listdir('train_images') 
-                                 if os.path.isdir(os.path.join('train_images', d))]
-                if disease_folders:
-                    self.disease_classes = sorted(disease_folders)
-                    self.num_diseases = len(self.disease_classes)
-                    print(f"Found {self.num_diseases} disease classes from folders")
-                else:
-                    # Default disease classes from assignment
-                    self.disease_classes = ['tungro', 'bacterial_leaf_blight', 'bacterial_leaf_streak', 
-                                          'bacterial_panicle_blight', 'blast', 'brown_spot', 
-                                          'dead_heart', 'downy_mildew', 'hispa', 'normal']
-                    self.num_diseases = len(self.disease_classes)
-                    print(f"Using default {self.num_diseases} disease classes")
-            else:
-                # Default disease classes
-                self.disease_classes = ['tungro', 'bacterial_leaf_blight', 'bacterial_leaf_streak', 
-                                      'bacterial_panicle_blight', 'blast', 'brown_spot', 
-                                      'dead_heart', 'downy_mildew', 'hispa', 'normal']
-                self.num_diseases = len(self.disease_classes)
-                print(f"Using default {self.num_diseases} disease classes")
+            # Use the correct disease class mapping provided
+            self.disease_classes = ['bacterial_leaf_blight', 'bacterial_leaf_streak', 
+                                   'bacterial_panicle_blight', 'blast', 'brown_spot', 
+                                   'dead_heart', 'downy_mildew', 'hispa', 'normal', 'tungro']
+            self.num_diseases = len(self.disease_classes)
+            print(f"Using provided disease class mapping with {self.num_diseases} classes")
             
         except Exception as e:
             print(f"Error loading encoders: {e}")
@@ -222,16 +351,38 @@ class PaddyModelHandler:
             self.variety_encoder.classes_ = np.array(['ADT25', 'Ariete', 'B40', 'BRS10', 'BRS30', 'BRS43', 
                                              'Cirad141', 'Csl3', 'IET1444', 'Khazar', 'MTL119', 
                                              'MTU1010', 'Pusa44', 'Spandana', 'TeqingMarshal', 'Varalu'])
-            self.disease_classes = ['tungro', 'bacterial_leaf_blight', 'bacterial_leaf_streak', 
-                                  'bacterial_panicle_blight', 'blast', 'brown_spot', 
-                                  'dead_heart', 'downy_mildew', 'hispa', 'normal']
+            self.disease_classes = ['bacterial_leaf_blight', 'bacterial_leaf_streak', 
+                                   'bacterial_panicle_blight', 'blast', 'brown_spot', 
+                                   'dead_heart', 'downy_mildew', 'hispa', 'normal', 'tungro']
     
     def load_models(self):
         """Load trained models or create fallbacks"""
         try:
-            # Create simplified models
-            # Instead of trying to load the models with their complex architectures,
-            # we'll recreate them with the core architecture and then load weights if available
+            # 1. Disease Classification Model (Task 1)
+            print("Creating disease classification model...")
+            self.disease_model = create_vit_classifier()
+            self.disease_model.compile(
+                optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy']
+            )
+            
+            # Check if weights are available for disease model
+            disease_weights_path = os.path.join(self.models_path, 'vit_disease_weights.weights.h5')
+            if os.path.exists(disease_weights_path):
+                print(f"Loading disease model weights from {disease_weights_path}")
+                try:
+                    self.disease_model.load_weights(disease_weights_path)
+                    self.disease_model_loaded = True
+                    print("Successfully loaded disease model weights")
+                except Exception as e:
+                    print(f"Error loading disease model weights: {e}")
+                    self.disease_model_loaded = False
+            else:
+                print("Disease model weights not found. Using uninitialized model.")
+                self.disease_model_loaded = False
+            
+            # 2. Variety Classification Model (Task 2)
             print("Creating variety classification model...")
             self.variety_model = create_vit_variety_classifier()
             self.variety_model.compile(
@@ -240,12 +391,12 @@ class PaddyModelHandler:
                 metrics=['accuracy']
             )
             
-            # Check if weights are available
-            weights_path = os.path.join(self.models_path, 'vit_variety_weights.weights.h5')
-            if os.path.exists(weights_path):
-                print(f"Loading variety model weights from {weights_path}")
+            # Check if weights are available for variety model
+            variety_weights_path = os.path.join(self.models_path, 'vit_variety_weights.weights.h5')
+            if os.path.exists(variety_weights_path):
+                print(f"Loading variety model weights from {variety_weights_path}")
                 try:
-                    self.variety_model.load_weights(weights_path)
+                    self.variety_model.load_weights(variety_weights_path)
                     self.variety_model_loaded = True
                     print("Successfully loaded variety model weights")
                 except Exception as e:
@@ -255,74 +406,100 @@ class PaddyModelHandler:
                 print("Variety model weights not found. Using uninitialized model.")
                 self.variety_model_loaded = False
             
-            # For simplicity, we'll create simple CNN models for disease and age
-            # In a real application, you would load your actual models here
-            print("Creating disease classification model...")
-            self.disease_model = keras.Sequential([
-                keras.layers.Input(shape=input_shape),
-                keras.layers.Conv2D(32, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Conv2D(64, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Conv2D(128, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Flatten(),
-                keras.layers.Dense(128, activation='relu'),
-                keras.layers.Dropout(0.5),
-                keras.layers.Dense(self.num_diseases, activation='softmax')
-            ])
-            self.disease_model.compile(
-                optimizer='adam',
-                loss='sparse_categorical_crossentropy',
-                metrics=['accuracy']
-            )
-            self.disease_model_loaded = False
-            
+            # 3. Age Prediction Model (Task 3)
             print("Creating age regression model...")
-            self.age_model = keras.Sequential([
-                keras.layers.Input(shape=input_shape),
-                keras.layers.Conv2D(32, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Conv2D(64, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Flatten(),
-                keras.layers.Dense(128, activation='relu'),
-                keras.layers.Dense(1)  # Single output for regression
-            ])
+            self.age_model = create_vit_regressor()
             self.age_model.compile(
                 optimizer='adam',
-                loss='mse',
-                metrics=['mae']
+                loss='mse',  # Mean Squared Error for regression
+                metrics=['mae']  # Mean Absolute Error as metric
             )
-            self.age_model_loaded = False
             
-            print("Models initialized successfully")
+            # Check if weights are available for age model
+            age_weights_path = os.path.join(self.models_path, 'vit_age_weights.weights.h5')
+            if os.path.exists(age_weights_path):
+                print(f"Loading age model weights from {age_weights_path}")
+                try:
+                    self.age_model.load_weights(age_weights_path)
+                    self.age_model_loaded = True
+                    print("Successfully loaded age model weights")
+                except Exception as e:
+                    print(f"Error loading age model weights: {e}")
+                    self.age_model_loaded = False
+            else:
+                print("Age model weights not found. Using uninitialized model.")
+                self.age_model_loaded = False
+            
+            print("All models initialized successfully")
             
         except Exception as e:
             print(f"Error loading models: {e}")
             # Set flags to indicate models couldn't be loaded
-            self.variety_model_loaded = False
             self.disease_model_loaded = False
+            self.variety_model_loaded = False
             self.age_model_loaded = False
     
     def predict(self, image_path):
-        """Run prediction on an image"""
+        """Run prediction on an image using all three models"""
         img_array = preprocess_image(image_path)
         if img_array is None:
             return None, None, None
         
         try:
-            # Variety prediction (use actual model if loaded)
-            if self.variety_model_loaded:
-                variety_pred = self.variety_model.predict(img_array)
-                variety_idx = np.argmax(variety_pred, axis=1)[0]
-                variety_name = self.variety_encoder.classes_[variety_idx]
-                variety_confidence = variety_pred[0][variety_idx] * 100
+            # 1. Disease prediction (Task 1)
+            if self.disease_model_loaded:
+                disease_pred = self.disease_model.predict(img_array, verbose=0)
+                disease_idx = np.argmax(disease_pred, axis=1)[0]
+                disease_name = self.disease_classes[disease_idx]
+                disease_confidence = disease_pred[0][disease_idx] * 100
                 
-                # Get top 3 varieties
-                top_variety_indices = np.argsort(variety_pred[0])[-3:][::-1]
-                top_varieties = [(self.variety_encoder.classes_[i], variety_pred[0][i] * 100) 
-                               for i in top_variety_indices]
+                # Get top 3 diseases
+                top_disease_indices = np.argsort(disease_pred[0])[-3:][::-1]
+                top_diseases = [(self.disease_classes[i], disease_pred[0][i] * 100) 
+                              for i in top_disease_indices]
+                
+                print(f"Disease prediction: {disease_name} ({disease_confidence:.2f}%)")
+            else:
+                # Simulate disease prediction
+                print("Using simulated disease prediction")
+                disease_pred = np.zeros((1, self.num_diseases))
+                # Make one class dominant
+                dominant_idx = np.random.randint(0, self.num_diseases)
+                disease_pred[0, dominant_idx] = np.random.uniform(0.6, 0.9)
+                # Distribute remaining probability
+                remaining = 1.0 - disease_pred[0, dominant_idx]
+                for i in range(self.num_diseases):
+                    if i != dominant_idx:
+                        disease_pred[0, i] = np.random.uniform(0, remaining / (self.num_diseases - 1))
+                # Normalize
+                disease_pred = disease_pred / disease_pred.sum(axis=1, keepdims=True)
+                
+                # Get top 3 diseases
+                top_disease_indices = np.argsort(disease_pred[0])[-3:][::-1]
+                top_diseases = [(self.disease_classes[i], disease_pred[0][i] * 100) 
+                              for i in top_disease_indices]
+            
+            # 2. Variety prediction (Task 2)
+            if self.variety_model_loaded:
+                variety_pred = self.variety_model.predict(img_array, verbose=0)
+                variety_idx = np.argmax(variety_pred, axis=1)[0]
+                if variety_idx < len(self.variety_encoder.classes_):
+                    variety_name = self.variety_encoder.classes_[variety_idx]
+                    variety_confidence = variety_pred[0][variety_idx] * 100
+                    
+                    # Get top 3 varieties (or as many as possible)
+                    top_n = min(3, len(self.variety_encoder.classes_))
+                    top_variety_indices = np.argsort(variety_pred[0])[-top_n:][::-1]
+                    top_varieties = []
+                    for i in top_variety_indices:
+                        if i < len(self.variety_encoder.classes_):
+                            top_varieties.append((self.variety_encoder.classes_[i], variety_pred[0][i] * 100))
+                    
+                    print(f"Variety prediction: {variety_name} ({variety_confidence:.2f}%)")
+                else:
+                    # Handle index out of bounds
+                    print(f"Warning: Variety index {variety_idx} out of bounds")
+                    top_varieties = [("Unknown", 100.0)]
             else:
                 # Simulate variety prediction
                 print("Using simulated variety prediction")
@@ -343,33 +520,24 @@ class PaddyModelHandler:
                 top_varieties = [(self.variety_encoder.classes_[i], variety_pred[0][i] * 100) 
                                for i in top_variety_indices]
             
-            # Disease prediction (simulate for now)
-            # In a real app, you would use your trained disease model
-            disease_pred = np.zeros((1, self.num_diseases))
-            # Make one class dominant
-            dominant_idx = np.random.randint(0, self.num_diseases)
-            disease_pred[0, dominant_idx] = np.random.uniform(0.6, 0.9)
-            # Distribute remaining probability
-            remaining = 1.0 - disease_pred[0, dominant_idx]
-            for i in range(self.num_diseases):
-                if i != dominant_idx:
-                    disease_pred[0, i] = np.random.uniform(0, remaining / (self.num_diseases - 1))
-            # Normalize
-            disease_pred = disease_pred / disease_pred.sum(axis=1, keepdims=True)
-            
-            # Get top 3 diseases
-            top_disease_indices = np.argsort(disease_pred[0])[-3:][::-1]
-            top_diseases = [(self.disease_classes[i], disease_pred[0][i] * 100) 
-                           for i in top_disease_indices]
-            
-            # Age prediction (simulate for now)
-            # In a real app, you would use your trained age model
-            age_pred = np.random.randint(20, 120)
+            # 3. Age prediction (Task 3) - Direct regression output
+            if self.age_model_loaded:
+                # For regression, output is a direct value, not a class
+                age_pred_raw = self.age_model.predict(img_array, verbose=0)
+                # Convert to int and ensure in reasonable range (1-150 days)
+                age_pred = max(1, min(150, int(round(age_pred_raw[0][0]))))
+                print(f"Predicted age: {age_pred} days (raw: {age_pred_raw[0][0]})")
+            else:
+                # Simulate age prediction - more realistic range for rice plants (15-120 days)
+                print("Using simulated age prediction")
+                age_pred = np.random.randint(15, 120)
             
             return top_diseases, top_varieties, age_pred
             
         except Exception as e:
             print(f"Error during prediction: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None, None
 
 # Main GUI Application
@@ -513,6 +681,16 @@ class PaddyDoctorApp:
         self.variety_details.insert(tk.END, "Variety prediction details will appear here...")
         self.variety_details.config(state=tk.DISABLED)
         
+        # Age tab (new)
+        age_tab = ttk.Frame(self.results_notebook)
+        self.results_notebook.add(age_tab, text="Age")
+        
+        # Age details
+        self.age_details = tk.Text(age_tab, height=10, bg="white", font=("Courier", 10))
+        self.age_details.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.age_details.insert(tk.END, "Age prediction details will appear here...")
+        self.age_details.config(state=tk.DISABLED)
+        
         # Status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready. Please upload an image of a rice plant to begin.")
@@ -626,14 +804,33 @@ class PaddyDoctorApp:
                 self.disease_details.insert(tk.END, f"{i+1}. {name}\n")
                 self.disease_details.insert(tk.END, f"   Confidence: {confidence:.2f}%\n\n")
                 
-                # Add disease information (placeholder)
+                # Add disease information
                 if i == 0:  # Only for top disease
                     self.disease_details.insert(tk.END, "Information:\n")
                     if name.lower() == "normal":
                         self.disease_details.insert(tk.END, "The plant appears healthy with no visible signs of disease.\n\n")
+                    elif name.lower() == "blast":
+                        self.disease_details.insert(tk.END, "Rice blast is one of the most destructive diseases of rice, caused\n")
+                        self.disease_details.insert(tk.END, "by the fungus Magnaporthe oryzae. It can affect all above-ground\n")
+                        self.disease_details.insert(tk.END, "parts of the plant and causes diamond-shaped lesions.\n\n")
+                        self.disease_details.insert(tk.END, "Treatment: Apply fungicides, use resistant varieties, and\n")
+                        self.disease_details.insert(tk.END, "maintain proper water management.\n\n")
+                    elif name.lower() == "brown_spot":
+                        self.disease_details.insert(tk.END, "Brown spot is caused by the fungus Cochliobolus miyabeanus. It\n")
+                        self.disease_details.insert(tk.END, "appears as oval brown lesions on leaves and can cause significant\n")
+                        self.disease_details.insert(tk.END, "yield loss, especially in nutrient-deficient soils.\n\n")
+                        self.disease_details.insert(tk.END, "Treatment: Ensure proper nutrition, especially potassium, apply\n")
+                        self.disease_details.insert(tk.END, "fungicides, and use disease-free seeds.\n\n")
+                    elif name.lower() == "hispa":
+                        self.disease_details.insert(tk.END, "Rice hispa is caused by the beetle Dicladispa armigera. The adult\n")
+                        self.disease_details.insert(tk.END, "beetles scrape the upper surface of leaf blades leaving whitish\n")
+                        self.disease_details.insert(tk.END, "streaks. The grubs mine into the leaf tissues.\n\n")
+                        self.disease_details.insert(tk.END, "Treatment: Apply insecticides, remove and destroy affected leaves,\n")
+                        self.disease_details.insert(tk.END, "and avoid excess fertilizers.\n\n")
                     else:
-                        self.disease_details.insert(tk.END, f"{name} is a common rice plant disease. Early detection\n")
-                        self.disease_details.insert(tk.END, f"and appropriate treatment is crucial for preventing crop damage.\n\n")
+                        self.disease_details.insert(tk.END, f"{name} is a rice plant disease that can cause significant\n")
+                        self.disease_details.insert(tk.END, f"crop damage. Early detection and appropriate treatment\n")
+                        self.disease_details.insert(tk.END, f"are crucial for preventing yield loss.\n\n")
         
         self.disease_details.config(state=tk.DISABLED)
         
@@ -648,13 +845,61 @@ class PaddyDoctorApp:
                 self.variety_details.insert(tk.END, f"{i+1}. {name}\n")
                 self.variety_details.insert(tk.END, f"   Confidence: {confidence:.2f}%\n\n")
                 
-                # Add variety information (placeholder)
+                # Add variety information
                 if i == 0:  # Only for top variety
                     self.variety_details.insert(tk.END, "Information:\n")
                     self.variety_details.insert(tk.END, f"{name} is a rice variety with specific growing characteristics.\n")
                     self.variety_details.insert(tk.END, f"Optimal growing conditions and care should be tailored to this variety.\n\n")
         
         self.variety_details.config(state=tk.DISABLED)
+        
+        # Update age details
+        self.age_details.config(state=tk.NORMAL)
+        self.age_details.delete(1.0, tk.END)
+        self.age_details.insert(tk.END, "AGE PREDICTION RESULTS\n")
+        self.age_details.insert(tk.END, "=====================\n\n")
+        
+        self.age_details.insert(tk.END, f"Estimated plant age: {age_pred} days\n\n")
+        
+        # Add growth stage information based on age
+        self.age_details.insert(tk.END, "Growth Stage Information:\n")
+        if age_pred < 30:
+            self.age_details.insert(tk.END, "Seedling Stage (0-30 days):\n")
+            self.age_details.insert(tk.END, "This is the early growth stage where the plant emerges from the seed.\n")
+            self.age_details.insert(tk.END, "Focus on maintaining proper water levels and protecting from pests.\n\n")
+        elif age_pred < 60:
+            self.age_details.insert(tk.END, "Vegetative Stage (30-60 days):\n")
+            self.age_details.insert(tk.END, "The plant is actively growing and developing tillers.\n")
+            self.age_details.insert(tk.END, "Ensure adequate nutrients and monitor for diseases.\n\n")
+        elif age_pred < 90:
+            self.age_details.insert(tk.END, "Reproductive Stage (60-90 days):\n")
+            self.age_details.insert(tk.END, "The plant is developing panicles and flowering.\n")
+            self.age_details.insert(tk.END, "Critical stage for water management and disease control.\n\n")
+        else:
+            self.age_details.insert(tk.END, "Ripening Stage (90+ days):\n")
+            self.age_details.insert(tk.END, "The grains are filling and maturing. The plant will begin to yellow.\n")
+            self.age_details.insert(tk.END, "Prepare for harvesting when appropriate.\n\n")
+        
+        # Add recommendations based on age
+        self.age_details.insert(tk.END, "Recommendations:\n")
+        if age_pred < 30:
+            self.age_details.insert(tk.END, "- Maintain consistent moisture levels\n")
+            self.age_details.insert(tk.END, "- Monitor for seed-borne diseases\n")
+            self.age_details.insert(tk.END, "- Protect from birds and pests\n")
+        elif age_pred < 60:
+            self.age_details.insert(tk.END, "- Apply nitrogen fertilizer if needed\n")
+            self.age_details.insert(tk.END, "- Control weeds that compete with young plants\n")
+            self.age_details.insert(tk.END, "- Monitor for leaf diseases\n")
+        elif age_pred < 90:
+            self.age_details.insert(tk.END, "- Maintain optimal water levels during flowering\n")
+            self.age_details.insert(tk.END, "- Apply protective fungicides if disease risk is high\n")
+            self.age_details.insert(tk.END, "- Avoid stress to maximize grain setting\n")
+        else:
+            self.age_details.insert(tk.END, "- Gradually reduce water levels as harvest approaches\n")
+            self.age_details.insert(tk.END, "- Protect from birds and animals\n")
+            self.age_details.insert(tk.END, "- Prepare for harvest when grains are mature\n")
+        
+        self.age_details.config(state=tk.DISABLED)
 
 # Main function
 def main():

@@ -9,10 +9,18 @@ import joblib
 from tensorflow import keras
 from tensorflow.keras import layers
 import warnings
+import json
+from pathlib import Path
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logging
+
+# Set random seeds for reproducibility
+import random
+random.seed(45)
+tf.random.set_seed(45)
+np.random.seed(45)
 
 # Constants from your original code
 img_height = 256
@@ -20,7 +28,7 @@ img_width = 256
 batch_size = 32
 image_size = 72
 patch_size = 6
-num_patches = 144
+num_patches = (image_size // patch_size) ** 2
 projection_dim = 64
 num_heads = 4
 transformer_units = [
@@ -32,10 +40,10 @@ mlp_head_units = [2048, 1024]
 input_shape = (256, 256, 3)
 num_classes = 10  # Number of classes for disease classification
 
-# Custom layers needed for the ViT model
+# Custom layers needed for the models
 class Patches(layers.Layer):
-    def __init__(self, patch_size):
-        super(Patches, self).__init__()
+    def __init__(self, patch_size, **kwargs):
+        super(Patches, self).__init__(**kwargs)
         self.patch_size = patch_size
 
     def call(self, images):
@@ -55,10 +63,15 @@ class Patches(layers.Layer):
         config = super().get_config()
         config.update({"patch_size": self.patch_size})
         return config
+    
+    @classmethod
+    def from_config(cls, config):
+        patch_size = config.pop("patch_size")
+        return cls(patch_size=patch_size, **config)
 
 class PatchEncoder(layers.Layer):
-    def __init__(self, num_patches, projection_dim):
-        super(PatchEncoder, self).__init__()
+    def __init__(self, num_patches, projection_dim, **kwargs):
+        super(PatchEncoder, self).__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim
         self.projection = layers.Dense(units=projection_dim)
@@ -78,6 +91,12 @@ class PatchEncoder(layers.Layer):
             "projection_dim": self.projection_dim
         })
         return config
+    
+    @classmethod
+    def from_config(cls, config):
+        num_patches = config.pop("num_patches")
+        projection_dim = config.pop("projection_dim")
+        return cls(num_patches=num_patches, projection_dim=projection_dim, **config)
 
 # Helper function for the ViT model
 def mlp(x, hidden_units, dropout_rate):
@@ -86,30 +105,27 @@ def mlp(x, hidden_units, dropout_rate):
         x = layers.Dropout(dropout_rate)(x)
     return x
 
-data_augmentation = keras.Sequential(
-    [
-        layers.Resizing(image_size, image_size),
-        layers.RandomFlip("horizontal"),
-        layers.RandomRotation(factor=0.02),
-        layers.RandomZoom(
-            height_factor=0.2, width_factor=0.2
-        ),
-    ],
-    name="data_augmentation",
-)
-
-# Normalization layer (will be adapted during training)
-normalization = layers.Normalization()
-
 # ViT Model for Variety Classification
 def create_vit_variety_classifier():
+    # Create data augmentation
+    data_augmentation = keras.Sequential(
+        [
+            layers.Normalization(),
+            layers.Resizing(image_size, image_size),
+            layers.RandomFlip("horizontal"),
+            layers.RandomRotation(factor=0.02),
+            layers.RandomZoom(
+                height_factor=0.2, width_factor=0.2
+            ),
+        ],
+        name="data_augmentation",
+    )
+    
     inputs = layers.Input(shape=input_shape)
     # Normalize data
-    normalized = normalization(inputs)
-    # Augment data.
-    augmented = data_augmentation(normalized)
+    normalized = data_augmentation(inputs)
     # Create patches.
-    patches = Patches(patch_size)(augmented)
+    patches = Patches(patch_size)(normalized)
     # Encode patches.
     encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
 
@@ -142,13 +158,87 @@ def create_vit_variety_classifier():
     model = keras.Model(inputs=inputs, outputs=logits)
     return model
 
+# Function to create the ViT model for Age Regression
+def create_vit_regressor():
+    # Create data augmentation
+    data_augmentation = keras.Sequential(
+        [
+            layers.Normalization(),
+            layers.Resizing(image_size, image_size),
+            layers.RandomFlip("horizontal"),
+            layers.RandomRotation(factor=0.02),
+            layers.RandomZoom(height_factor=0.2, width_factor=0.2),
+        ],
+        name="data_augmentation",
+    )
+    
+    inputs = layers.Input(shape=input_shape)
+    
+    # Augment data
+    augmented = data_augmentation(inputs)
+    
+    # Create patches
+    patches = Patches(patch_size)(augmented)
+    
+    # Encode patches
+    encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
+
+    # Create multiple layers of the Transformer block
+    for _ in range(transformer_layers):
+        # Layer normalization 1
+        x1 = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+        
+        # Create a multi-head attention layer
+        attention_output = layers.MultiHeadAttention(
+            num_heads=num_heads, key_dim=projection_dim, dropout=0.1
+        )(x1, x1)
+        
+        # Skip connection 1
+        x2 = layers.Add()([attention_output, encoded_patches])
+        
+        # Layer normalization 2
+        x3 = layers.LayerNormalization(epsilon=1e-6)(x2)
+        
+        # MLP
+        x3 = mlp(x3, hidden_units=transformer_units, dropout_rate=0.1)
+        
+        # Skip connection 2
+        encoded_patches = layers.Add()([x3, x2])
+
+    # Create a [batch_size, projection_dim] tensor
+    representation = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
+    representation = layers.Flatten()(representation)
+    representation = layers.Dropout(0.5)(representation)
+    
+    # Add MLP
+    features = mlp(representation, hidden_units=mlp_head_units, dropout_rate=0.5)
+    
+    # Output layer for regression (single neuron for age)
+    output = layers.Dense(1, activation='linear')(features)
+    
+    # Create the Keras model
+    model = keras.Model(inputs=inputs, outputs=output)
+    return model
+
 # Function to preprocess image for model input
-def preprocess_image(image_path):
+def preprocess_variety_image(image_path):
     """Process image for model prediction"""
     try:
         img = Image.open(image_path).convert('RGB')
         img = img.resize((img_width, img_height))
         img_array = np.array(img) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+        return img_array
+    except Exception as e:
+        print(f"Error preprocessing image: {e}")
+        return None
+
+
+def preprocess_age_image(image_path):
+    try:
+        img = Image.open(image_path).convert('RGB')
+        img = img.resize((img_width, img_height))
+        img_array = np.array(img)
         img_array = np.expand_dims(img_array, axis=0)
         return img_array
     except Exception as e:
@@ -161,6 +251,10 @@ class PaddyModelHandler:
         self.home_path = os.getcwd()
         self.models_path = os.path.join(self.home_path, 'paddy_models')
         os.makedirs(self.models_path, exist_ok=True)
+        
+        # Define paths for ensemble model storage
+        self.kfold_models_path = os.path.join(self.models_path, 'kfold_models')
+        os.makedirs(self.kfold_models_path, exist_ok=True)
         
         # Load label encoders
         self.load_encoders()
@@ -212,6 +306,23 @@ class PaddyModelHandler:
                 self.num_diseases = len(self.disease_classes)
                 print(f"Using default {self.num_diseases} disease classes")
             
+            # Load or create age statistics for normalization
+            age_stats_path = os.path.join(self.models_path, 'age_stats_kfold.json')
+            if os.path.exists(age_stats_path):
+                with open(age_stats_path, 'r') as f:
+                    self.age_stats = json.load(f)
+                print(f"Loaded age statistics: mean={self.age_stats['mean']}, std={self.age_stats['std']}")
+            else:
+                # Create fallback stats
+                self.age_stats = {
+                    'mean': 64.0436244835207,  # Example value, replace with actual mean
+                    'std': 8.9582253420494     # Example value, replace with actual std
+                }
+                # Save the fallback stats
+                with open(age_stats_path, 'w') as f:
+                    json.dump(self.age_stats, f)
+                print(f"Created fallback age statistics: mean={self.age_stats['mean']}, std={self.age_stats['std']}")
+            
         except Exception as e:
             print(f"Error loading encoders: {e}")
             # Set fallback values
@@ -225,13 +336,15 @@ class PaddyModelHandler:
             self.disease_classes = ['tungro', 'bacterial_leaf_blight', 'bacterial_leaf_streak', 
                                   'bacterial_panicle_blight', 'blast', 'brown_spot', 
                                   'dead_heart', 'downy_mildew', 'hispa', 'normal']
+            self.age_stats = {
+                'mean': 64.0436244835207,
+                'std': 8.9582253420494
+            }
     
     def load_models(self):
         """Load trained models or create fallbacks"""
         try:
-            # Create simplified models
-            # Instead of trying to load the models with their complex architectures,
-            # we'll recreate them with the core architecture and then load weights if available
+            # -------- VARIETY MODEL --------
             print("Creating variety classification model...")
             self.variety_model = create_vit_variety_classifier()
             self.variety_model.compile(
@@ -241,11 +354,11 @@ class PaddyModelHandler:
             )
             
             # Check if weights are available
-            weights_path = os.path.join(self.models_path, 'vit_variety_weights.weights.h5')
-            if os.path.exists(weights_path):
-                print(f"Loading variety model weights from {weights_path}")
+            variety_weights_path = os.path.join(self.models_path, 'vit_variety_weights.weights.h5')
+            if os.path.exists(variety_weights_path):
+                print(f"Loading variety model weights from {variety_weights_path}")
                 try:
-                    self.variety_model.load_weights(weights_path)
+                    self.variety_model.load_weights(variety_weights_path)
                     self.variety_model_loaded = True
                     print("Successfully loaded variety model weights")
                 except Exception as e:
@@ -255,8 +368,7 @@ class PaddyModelHandler:
                 print("Variety model weights not found. Using uninitialized model.")
                 self.variety_model_loaded = False
             
-            # For simplicity, we'll create simple CNN models for disease and age
-            # In a real application, you would load your actual models here
+            # -------- DISEASE MODEL --------
             print("Creating disease classification model...")
             self.disease_model = keras.Sequential([
                 keras.layers.Input(shape=input_shape),
@@ -278,23 +390,50 @@ class PaddyModelHandler:
             )
             self.disease_model_loaded = False
             
-            print("Creating age regression model...")
-            self.age_model = keras.Sequential([
-                keras.layers.Input(shape=input_shape),
-                keras.layers.Conv2D(32, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Conv2D(64, kernel_size=3, activation='relu'),
-                keras.layers.MaxPooling2D(pool_size=2),
-                keras.layers.Flatten(),
-                keras.layers.Dense(128, activation='relu'),
-                keras.layers.Dense(1)  # Single output for regression
-            ])
-            self.age_model.compile(
-                optimizer='adam',
-                loss='mse',
-                metrics=['mae']
-            )
-            self.age_model_loaded = False
+            # -------- AGE MODELS (ENSEMBLE) --------
+            print("Loading age regression ensemble models...")
+            self.age_ensemble_models = []
+            k_folds = 3  # Number of models in the ensemble
+            
+            for fold in range(1, k_folds + 1):
+                # Create a fresh model
+                age_model = create_vit_regressor()
+                
+                # Compile model
+                optimizer = keras.optimizers.Adam(learning_rate=0.001)
+                age_model.compile(
+                    optimizer=optimizer,
+                    loss='mean_absolute_error',
+                    metrics=['mae', 'mse']
+                )
+                
+                # Load weights
+                age_weights_path = os.path.join(self.kfold_models_path, f'best_vit_age_model_fold_{fold}.weights.h5')
+                
+                if os.path.exists(age_weights_path):
+                    age_model.load_weights(age_weights_path)
+                    print(f"Loaded weights for age model fold {fold}")
+                    
+                    # Add to ensemble with normalization stats
+                    self.age_ensemble_models.append((age_model, self.age_stats['mean'], self.age_stats['std']))
+                else:
+                    print(f"Warning: Could not find weights for age model fold {fold}")
+            
+            # Check if at least one age model was loaded
+            if self.age_ensemble_models:
+                self.age_model_loaded = True
+                print(f"Successfully loaded {len(self.age_ensemble_models)} age models for ensemble")
+            else:
+                # Create a single fallback model
+                fallback_age_model = create_vit_regressor()
+                fallback_age_model.compile(
+                    optimizer='adam',
+                    loss='mean_absolute_error',
+                    metrics=['mae']
+                )
+                self.age_ensemble_models = [(fallback_age_model, self.age_stats['mean'], self.age_stats['std'])]
+                self.age_model_loaded = False
+                print("No age model weights found. Using uninitialized fallback model.")
             
             print("Models initialized successfully")
             
@@ -307,14 +446,13 @@ class PaddyModelHandler:
     
     def predict(self, image_path):
         """Run prediction on an image"""
-        img_array = preprocess_image(image_path)
-        if img_array is None:
-            return None, None, None
         
         try:
             # Variety prediction (use actual model if loaded)
             if self.variety_model_loaded:
-                variety_pred = self.variety_model.predict(img_array)
+                img_array = preprocess_variety_image(image_path)
+
+                variety_pred = self.variety_model.predict(img_array, verbose=0)
                 variety_idx = np.argmax(variety_pred, axis=1)[0]
                 variety_name = self.variety_encoder.classes_[variety_idx]
                 variety_confidence = variety_pred[0][variety_idx] * 100
@@ -361,10 +499,27 @@ class PaddyModelHandler:
             top_disease_indices = np.argsort(disease_pred[0])[-3:][::-1]
             top_diseases = [(self.disease_classes[i], disease_pred[0][i] * 100) 
                            for i in top_disease_indices]
-            
-            # Age prediction (simulate for now)
-            # In a real app, you would use your trained age model
-            age_pred = np.random.randint(20, 120)
+
+            # Age prediction using ensemble
+            if self.age_model_loaded and self.age_ensemble_models:
+                img_array = preprocess_age_image(image_path)
+
+                # Make predictions with each model in the ensemble
+                all_age_predictions = []
+                
+                for model, age_mean, age_std in self.age_ensemble_models:
+                    predictions_norm = model.predict(img_array, verbose=0)
+                    predictions_original = predictions_norm.flatten() * age_std + age_mean
+                    all_age_predictions.append(predictions_original)
+                
+                # Average predictions across all models in the ensemble
+                ensemble_age_prediction = np.mean(all_age_predictions, axis=0)[0]
+                age_pred = int(round(ensemble_age_prediction))  # Round to nearest integer
+                print(f"Predicted age: {age_pred} days (ensemble of {len(self.age_ensemble_models)} models)")
+            else:
+                # Simulate age prediction
+                print("Using simulated age prediction")
+                age_pred = np.random.randint(20, 120)
             
             return top_diseases, top_varieties, age_pred
             
@@ -513,6 +668,16 @@ class PaddyDoctorApp:
         self.variety_details.insert(tk.END, "Variety prediction details will appear here...")
         self.variety_details.config(state=tk.DISABLED)
         
+        # Age tab
+        age_tab = ttk.Frame(self.results_notebook)
+        self.results_notebook.add(age_tab, text="Age")
+        
+        # Age details
+        self.age_details = tk.Text(age_tab, height=10, bg="white", font=("Courier", 10))
+        self.age_details.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.age_details.insert(tk.END, "Age prediction details will appear here...")
+        self.age_details.config(state=tk.DISABLED)
+        
         # Status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready. Please upload an image of a rice plant to begin.")
@@ -655,6 +820,48 @@ class PaddyDoctorApp:
                     self.variety_details.insert(tk.END, f"Optimal growing conditions and care should be tailored to this variety.\n\n")
         
         self.variety_details.config(state=tk.DISABLED)
+        
+        # Update age details
+        self.age_details.config(state=tk.NORMAL)
+        self.age_details.delete(1.0, tk.END)
+        self.age_details.insert(tk.END, "AGE PREDICTION RESULTS\n")
+        self.age_details.insert(tk.END, "====================\n\n")
+        
+        self.age_details.insert(tk.END, f"Predicted Age: {age_pred} days\n\n")
+        
+        # Add age information (general information)
+        self.age_details.insert(tk.END, "Information:\n")
+        
+        if age_pred < 30:
+            stage = "Early Vegetative"
+            description = "Young seedling stage. Focus on proper water management and nutrient supply."
+        elif age_pred < 60:
+            stage = "Vegetative"
+            description = "Active tillering stage. Important for determining yield potential."
+        elif age_pred < 90:
+            stage = "Reproductive"
+            description = "Panicle initiation and flowering. Critical for yield formation."
+        else:
+            stage = "Ripening"
+            description = "Grain filling and maturation. Important for grain quality."
+        
+        self.age_details.insert(tk.END, f"Growth Stage: {stage}\n")
+        self.age_details.insert(tk.END, f"Description: {description}\n\n")
+        
+        self.age_details.insert(tk.END, "Management Recommendations:\n")
+        
+        if age_pred < 30:
+            recommendations = "Maintain shallow water depth. Apply early nitrogen as needed."
+        elif age_pred < 60:
+            recommendations = "Ensure adequate water and nutrients. Monitor for pests and diseases."
+        elif age_pred < 90:
+            recommendations = "Avoid water stress. Protect from pests that affect panicles."
+        else:
+            recommendations = "Begin planning for harvest. Monitor for optimal grain moisture."
+        
+        self.age_details.insert(tk.END, recommendations)
+        
+        self.age_details.config(state=tk.DISABLED)
 
 # Main function
 def main():

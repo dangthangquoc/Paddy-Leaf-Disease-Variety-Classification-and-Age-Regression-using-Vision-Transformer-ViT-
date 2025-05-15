@@ -340,7 +340,7 @@ class PaddyModelHandler:
                 from sklearn.preprocessing import LabelEncoder
                 self.variety_encoder = LabelEncoder()
                 # Use example variety classes from your code
-                self.variety_encoder.classes_ = np.array(['ADT25', 'Ariete', 'B40', 'BRS10', 'BRS30', 'BRS43', 
+                self.variety_encoder.classes_ = np.array(['ADT45', 'Ariete', 'B40', 'BRS10', 'BRS30', 'BRS43', 
                                                  'Cirad141', 'Csl3', 'IET1444', 'Khazar', 'MTL119', 
                                                  'MTU1010', 'Pusa44', 'Spandana', 'TeqingMarshal', 'Varalu'])
                 self.num_varieties = len(self.variety_encoder.classes_)
@@ -407,7 +407,7 @@ class PaddyModelHandler:
             self.num_diseases = 10
             from sklearn.preprocessing import LabelEncoder
             self.variety_encoder = LabelEncoder()
-            self.variety_encoder.classes_ = np.array(['ADT25', 'Ariete', 'B40', 'BRS10', 'BRS30', 'BRS43', 
+            self.variety_encoder.classes_ = np.array(['ADT45', 'Ariete', 'B40', 'BRS10', 'BRS30', 'BRS43', 
                                              'Cirad141', 'Csl3', 'IET1444', 'Khazar', 'MTL119', 
                                              'MTU1010', 'Pusa44', 'Spandana', 'TeqingMarshal', 'Varalu'])
             

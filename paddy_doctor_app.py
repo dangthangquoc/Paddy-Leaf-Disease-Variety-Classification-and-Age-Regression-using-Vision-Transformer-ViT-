@@ -348,7 +348,7 @@ class PaddyModelHandler:
             
             # Load or create disease encoder
             # First try to load from joblib file (Task 1)
-            disease_encoder_path = 'label_label_encoder.joblib'
+            disease_encoder_path = 'disease_label_encoder.joblib'
             if os.path.exists(disease_encoder_path):
                 self.disease_encoder = joblib.load(disease_encoder_path)
                 self.disease_classes = self.disease_encoder.classes_

@@ -5,20 +5,30 @@ This project focuses on classifying paddy leaf diseases, variety and age regress
 ## 🗂️ Project Structure
 ```
 paddy_disease_classification/
-├── paddy_models/ 
-│ └── vit_model.keras
-├── test_images/ 
-│ └── *.jpg / *.png / ...
-├── train_images/ 
-│ └── class_name_1/
-│ └── class_name_2/
-│ └── ...
-├── environment.yaml 
-├── prediction_submision.csv
-├── 
-├── 
-├── README.md
-└── 
+├── task3_load_model.ipynb
+├── task2_load_model.ipynb
+├── task1_load_model.ipynb
+├── prediction_submission.csv
+├── paddy_doctor_app.py
+├── meta_train.csv
+├── generate_prediction.ipynb
+├── exploratory_data_analysis.ipynb
+├── environment.yaml
+├── age_stats_kfold.json
+├── train_scripts/
+│ ├── age_regressor_training.ipynb
+│ ├── disease_classification_training.ipynb
+│ └── variety_classification_training.ipynb
+├── train_images/
+├── test_images/
+├── disease_label_encoder.joblib
+├── variety_label_encoder.joblib
+├── detailed_prediction/
+│ ├── age_predictions_submission.csv
+│ ├── disease_predictions.csv
+│ ├── variety_predictions.csv
+│ ├── disease_predictions_detailed.csv
+│ └── variety_predictions_detailed.csv
 ```
 
 

@@ -330,7 +330,7 @@ class PaddyModelHandler:
         """Load label encoders for predictions"""
         try:
             # Try to load variety encoder
-            variety_encoder_path = 'variety_label_encoder.joblib'
+            variety_encoder_path = 'encoder/variety_label_encoder.joblib'
             if os.path.exists(variety_encoder_path):
                 self.variety_encoder = joblib.load(variety_encoder_path)
                 print(f"Loaded variety encoder with {len(self.variety_encoder.classes_)} classes")
@@ -348,7 +348,7 @@ class PaddyModelHandler:
             
             # Load or create disease encoder
             # First try to load from joblib file (Task 1)
-            disease_encoder_path = 'disease_label_encoder.joblib'
+            disease_encoder_path = 'encoder/disease_label_encoder.joblib'
             if os.path.exists(disease_encoder_path):
                 self.disease_encoder = joblib.load(disease_encoder_path)
                 self.disease_classes = self.disease_encoder.classes_

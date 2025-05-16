@@ -1,4 +1,4 @@
-# COSC2753_A2_MachineLearning | Paddy Leaf Disease/Variety Classification and Age Regression using Vision Transformer (ViT)
+# Paddy Leaf Disease/Variety Classification and Age Regression using Vision Transformer (ViT)
 
 This project focuses on classifying paddy leaf diseases, variety and age regression using a Vision Transformer (ViT) model. The model is trained on images of 10 different classes of paddy leaf conditions, including both healthy and diseased states. The dataset is PaddyDisease_datasets, you can download the dataset here: https://www.kaggle.com/datasets/azimnahid/paddydisease-datasets
 

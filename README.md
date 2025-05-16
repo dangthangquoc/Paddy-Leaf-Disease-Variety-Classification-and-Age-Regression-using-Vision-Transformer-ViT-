@@ -15,10 +15,9 @@ paddy_disease_classification/
 ├── exploratory_data_analysis.ipynb
 ├── environment.yaml
 ├── age_stats_kfold.json
-├── train_scripts/
-│ ├── age_regressor_training.ipynb
-│ ├── disease_classification_training.ipynb
-│ └── variety_classification_training.ipynb
+├── age_regressor_training.ipynb
+├── disease_classification_training.ipynb
+├── variety_classification_training.ipynb
 ├── train_images/
 ├── test_images/
 ├── disease_label_encoder.joblib
@@ -31,21 +30,33 @@ paddy_disease_classification/
 │ └── variety_predictions_detailed.csv
 ```
 
+## 📄 File Descriptions
 
+Here is a brief overview of the files included in this project:
 
-## 📋 Class Labels
-
-The model predicts the following paddy conditions:
-- `bacterial_leaf_blight`
-- `bacterial_leaf_streak`
-- `bacterial_panicle_blight`
-- `blast`
-- `brown_spot`
-- `dead_heart`
-- `downy_mildew`
-- `hispa`
-- `normal`
-- `tungro`
+- `paddy_doctor_app.py` — Main app file for launching the UI to make real-time predictions using trained models.
+- `generate_prediction.ipynb` — Script to generate and compile final predictions for all tasks.
+- `exploratory_data_analysis.ipynb` — Visualizes dataset statistics and explores class distributions, image samples, and other insights.
+- `environment.yaml` — Conda environment definition file including all required dependencies.
+- `meta_train.csv` — Metadata file containing image paths and labels used for training and evaluation.
+- `age_stats_kfold.json` — Stores fold-wise mean and standard deviation values used for normalization in age regression.
+- `age_regressor_training.ipynb` — Notebook to train the age prediction model using regression techniques and K-Fold cross-validation.
+- `disease_classification_training.ipynb` — Notebook for training a classification model to detect paddy leaf diseases.
+- `variety_classification_training.ipynb` — Notebook for training a model to classify the variety of the paddy plant.
+- `task1_load_model.ipynb` — Loads the trained model for Task 1 (Disease classification) and generates predictions.
+- `task2_load_model.ipynb` — Loads the trained model for Task 2 (Variety classification) and generates predictions.
+- `task3_load_model.ipynb` — Loads the trained model for Task 3 (Age regression) and generates predictions.
+- `prediction_submission.csv` — Final combined predictions submitted for evaluation (typically on Kaggle or a leaderboard).
+- `train_images/` — Folder containing training images used for model development.
+- `test_images/` — Folder containing test images used for evaluation and submission.
+- `disease_label_encoder.joblib` — Serialized encoder for converting disease class names to numerical labels and back.
+- `variety_label_encoder.joblib` — Serialized encoder for converting variety class names to numerical labels and back.
+- `detailed_prediction/` — Folder containing detailed prediction outputs for each task:
+  - `age_predictions_submission.csv` — Final predicted ages for the test images.
+  - `disease_predictions.csv` — Basic disease predictions for test set.
+  - `variety_predictions.csv` — Basic variety predictions for test set.
+  - `disease_predictions_detailed.csv` — Disease predictions with probabilities/confidences or metadata.
+  - `variety_predictions_detailed.csv` — Variety predictions with additional details or scores.
   
 ## ✅ Prerequisites
 
@@ -100,21 +111,75 @@ conda activate vit_paddy_classification
 ```
 
 ## 💼 Running the Code
-Follow these steps to run the code and generate predictions:
-1. **Prepare the Data**:
-   - Ensure `train_images` and `test_images` folder are in the same directory as `.py`.
-   - 
 
-2. **Run the Script**:
-   Execute the script:
-   ```bash
-   python .py
-   ```
+Follow these steps to run the application and generate predictions:
 
-3. **Expected Runtime**:
-   - The script takes approximately ?? minutes to run on a standard machine (8-core CPU, 16GB RAM).
+### 1. 📁 Prepare the Data
 
-## Output
+Ensure the following structure exists in the same directory as `paddy_doctor_app.py`:
+```
+├── paddy_doctor_app.py
+├── paddy_models
+│ ├── vit_label_weights.weights.h5
+│ ├── vit_variety_weights.weights.h5
+│ └── kfold_models
+│ ├── best_vit_age_model_fold_1.weights.h5
+│ ├── best_vit_age_model_fold_2.weights.h5
+│ └── best_vit_age_model_fold_3.weights.h5
+├── encoder
+```
+
+
+### 2. 🚀 Run the Application
+
+Execute the script with:
+
+```bash
+python paddy_doctor_app.py
+```
+
+### 3. ⏱️ Expected Runtime
+The script takes approximately 7 seconds to run on a standard machine (8-core CPU, 16GB RAM).
+
+## 🖼️ Output
+You should see the application UI:
+
+<p align="center"> <img src="https://github.com/user-attachments/assets/bc3223c7-7c17-4f17-b4de-134cc3df2ba1" alt="App UI" width="600"/> </p>
+
+
+## 🔁 Reproduce Training & Prediction Process
+### 1. 📁 Prepare the Data
+Place the following in the same directory as the notebook:
+```
+.
+├── train_images/
+├── test_images/
+├── meta_train.csv
+├── {task_name}_{task_type}_training.ipynb
+```
+Where: 
+- `{task_name}`: `disease`, `variety`, or `age`
+- `{task_type}`: `classification` or `regressor`
+
+### 2. 📓 Execute Training
+Open and run the appropriate Jupyter notebook:
+
+```bash
+{task_name}_{task_type}_training.ipynb
+```
+
+### 3. 🧠 Run Predictions
+Run the prediction notebook:
+
+```bash
+{task_number}_load_predict.ipynb
+```
+Where:
+`{task_number}`: `1`, `2`, or `3` (corresponds to the specific task)
+
+After completing the notebook, you should see prediction files generated like the following:
+
+<p align="center"> <img src="https://github.com/user-attachments/assets/c6d61fe5-8c56-42b8-a0b5-513d3883e802" alt="Prediction Output" width="600"/> </p>
 
 
 

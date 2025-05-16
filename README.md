@@ -67,7 +67,7 @@ Before running the code, ensure that you have the following installed:
   - `tensorflow` ≥ 2.15
   - `jupyter`
   - `matplotlib`
-  - `keras` = 2.15
+  - `keras` = 3.3.3
   - `numpy`
   - `pandas`
   - `scikit-learn`
